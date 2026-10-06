@@ -1,0 +1,106 @@
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: newMessages, contextData })
+      });
+
+      if (!response.ok) throw new Error('Chat request failed');
+      
+      if (!response.ok) throw new Error("Request failed");
+      const data = await response.json();
+      setChatMessages([...newMessages, { role: 'model', text: data.reply }]);
+    } catch (err) {
+      console.error(err);
+      setChatMessages([...newMessages, { role: 'model', text: 'Sorry, I encountered an error. Please try again.' }]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleGetIdeas = async (rank: number, resumeText: string) => {
+    setRebuildData(prev => ({ ...prev, [rank]: { loading: true, text: '' } }));
+    try {
+      const response = await fetch('/api/resume-ideas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobDescription, resumeText })
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Request failed");
+      }
+      const data = await response.json();
+      setRebuildData(prev => ({ ...prev, [rank]: { loading: false, text: data.ideas } }));
+    } catch (e: any) {
+      setRebuildData(prev => ({ ...prev, [rank]: { loading: false, text: `Error: ${e.message || 'Failed to load ideas. Please try again.'}` } }));
+    }
+  };
+
+  const steps = [
+    "Uploading Resumes",
+    "Extracting Text (PDF/TXT)",
+    "NLP Preprocessing (Tokenization, Stopwords)",
+    "Skill/Keyword Extraction",
+    "TF-IDF Vectorization",
+    "Cosine Similarity Math",
+    "Ranking & Shortlisting"
+  ];
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setFiles(Array.from(e.target.files));
+    }
+  };
+
+  const handleRunPipeline = async () => {
+    if (!jobDescription.trim() || files.length === 0) {
+      setError("Please provide a Job Description and at least one Resume file.");
+      return;
+    }
+
+    setIsProcessing(true);
+    setError(null);
+    setResults(null);
+    setCurrentStep(0);
+    setExpandedRow(null);
+
+    // Simulate pipeline steps for UI UX (since backend does it instantly)
+    const stepInterval = setInterval(() => {
+      setCurrentStep(prev => {
+        if (prev < steps.length - 1) return prev + 1;
+        clearInterval(stepInterval);
+        return prev;
+      });
+    }, 800);
+
+    try {
+      const formData = new FormData();
+      formData.append("jobDescription", jobDescription);
+      files.forEach(file => {
+        formData.append("resumes", file);
+      });
+
+      const response = await fetch('/api/screen-resumes', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        let errorMsg = 'Failed to process pipeline. The server may have timed out or the files are too large.';
+        try {
+          const errData = await response.json();
+          errorMsg = errData.error || errorMsg;
+        } catch (e) {
+          // If response is not JSON (e.g. 502 Bad Gateway HTML), just use the default message or status text
+          errorMsg = `Server Error (${response.status}): ${response.statusText}. The files might be too large or the server timed out.`;
+        }
+        throw new Error(errorMsg);
+      }
+
+      if (!response.ok) throw new Error("Request failed");
+      const data = await response.json();
+      setResults(data.candidates);
+      setCurrentStep(steps.length); // Complete
+    } catch (err: any) {
+      setError(err.message);
+      setIsProcessing(false);
+    } finally {
+      clearInterval(stepInterval);
